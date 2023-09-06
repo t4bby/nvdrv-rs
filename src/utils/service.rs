@@ -1,5 +1,6 @@
-use std::ffi::{OsString};
+#![allow(unused_imports)]
 
+use std::ffi::{OsString};
 use std::{mem, ptr};
 use std::path::PathBuf;
 use widestring::{WideCString, WideString};
@@ -126,12 +127,8 @@ impl ServiceManager {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum ServiceStartType {
-    /// Autostart on system startup
-    AutoStart = Services::SERVICE_AUTO_START,
     /// Service is enabled, can be started manually
     OnDemand = Services::SERVICE_DEMAND_START,
-    /// Disabled service
-    Disabled = Services::SERVICE_DISABLED,
 }
 
 

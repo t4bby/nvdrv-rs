@@ -6,7 +6,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 use widestring::WideCString;
 use windows_sys::Win32::System::LibraryLoader::{FreeLibrary, GetModuleHandleW, LoadLibraryW};
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH};
+use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_HIDDEN, OPEN_EXISTING};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W};
 
@@ -19,7 +19,7 @@ mod utils;
 static NVDRV_IOCTL_CODE: u32 = 0x9C40A484;
 
 #[repr(C)]
-enum NVControlRegisters {
+pub enum NVControlRegisters {
     CR0 = 0,
     CR2 = 2,
     CR3 = 3,
@@ -34,9 +34,7 @@ enum NVFunction {
     PhysWrite = 0x15
 }
 
-struct Request {
-    request_id: NVFunction,
-}
+struct Request;
 
 #[repr(C)]
 struct RequestMemcpy {
@@ -89,7 +87,7 @@ struct RequestWriteCR {
     unk_data: [u8; 0x138 - 0x40 - 56],
 }
 
-struct NVDrv {
+pub struct NVDrv {
     driver_path: PathBuf,
     nvhandle: HANDLE,
     encrypt_payload: Option<unsafe extern "C" fn(*mut Request, i32, *mut c_void) -> *mut c_void>,
@@ -99,7 +97,7 @@ struct NVDrv {
 
 impl NVDrv {
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         let temp_dir = env::temp_dir().join("nvoclock.sys");
         let nvoclock = unsafe { LoadLibraryW(WideCString::from_os_str(&temp_dir).unwrap().as_ptr()) };
         if nvoclock == 0 {
@@ -136,11 +134,7 @@ impl NVDrv {
         }
     }
 
-    fn init(&self) {
-
-    }
-
-    fn mm_get_physical_address(&self, virtual_address: u64) -> u64 {
+    pub fn mm_get_physical_address(&self, virtual_address: u64) -> u64 {
         let mut request = RequestPhysAddr {
             request_id: NVFunction::PhysReq,
             unk_0: 0,
@@ -180,7 +174,7 @@ impl NVDrv {
         }
     }
 
-    fn read_physical_memory(&self, physical_address: u64, res: *mut c_void, size: i32) -> bool {
+    pub fn read_physical_memory(&self, physical_address: u64, res: *mut c_void, size: i32) -> bool {
 
         let mut request = RequestMemcpy {
             request_id: NVFunction::PhysRead,
@@ -216,7 +210,7 @@ impl NVDrv {
         }
     }
 
-    fn write_physical_memory(&self, physical_address: u64, res: *mut c_void, size: i32) -> bool {
+    pub fn write_physical_memory(&self, physical_address: u64, res: *mut c_void, size: i32) -> bool {
         let mut request = RequestMemcpy {
             request_id: NVFunction::PhysWrite,
             size,
@@ -261,7 +255,7 @@ impl NVDrv {
     }
 
 
-    fn get_system_cr3(&self) -> u64 {
+    pub fn get_system_cr3(&self) -> u64 {
         for i in 0..10 {
             let mut lp_buffer: u64 = 0;
             if !self.read_physical_memory(i * 0x10000, &mut lp_buffer as *mut u64 as *mut c_void, mem::size_of::<u64>() as i32) {
@@ -314,7 +308,7 @@ impl NVDrv {
         let directory_ptr = ((virtual_address >> 30) & 0x1FF) as u16;
         let mut pdpte: u64 = 0;
         self.read_physical_memory(
-            ((pml4e & 0xFFFFFFFFFF000) + directory_ptr as u64 * mem::size_of::<u64>() as u64),
+            (pml4e & 0xFFFFFFFFFF000) + directory_ptr as u64 * mem::size_of::<u64>() as u64,
             &mut pdpte as *mut u64 as *mut c_void,
             mem::size_of::<u64>() as i32,
         );
@@ -355,7 +349,7 @@ impl NVDrv {
     }
 
 
-    fn read_virtual_memory(&self, address: u64, output: *mut c_void, size: u32) -> bool {
+    pub fn read_virtual_memory(&self, address: u64, output: *mut c_void, size: u32) -> bool {
         if address == 0 || size == 0 {
             return false;
         }
@@ -374,7 +368,7 @@ impl NVDrv {
         true
     }
 
-    fn write_virtual_memory(&self, address: u64, data: *mut c_void, size: u32) -> bool {
+    pub fn write_virtual_memory(&self, address: u64, data: *mut c_void, size: u32) -> bool {
         if address == 0 || data.is_null() || size == 0 {
             return false;
         }
@@ -393,7 +387,7 @@ impl NVDrv {
         true
     }
 
-    fn read_cr(&self, cr: NVControlRegisters) -> u32 {
+    pub fn read_cr(&self, cr: NVControlRegisters) -> u32 {
         let mut request = RequestReadCR {
             request_id: NVFunction::ReadCr,
             unk_0: 4,
@@ -435,7 +429,7 @@ impl NVDrv {
         }
     }
 
-    fn write_cr(&self, cr: NVControlRegisters, value: u32) -> bool {
+    pub fn write_cr(&self, cr: NVControlRegisters, value: u32) -> bool {
         let mut request = RequestWriteCR {
             request_id: NVFunction::WriteCr,
             cr_num: cr as i32,
@@ -473,7 +467,7 @@ impl NVDrv {
     }
 
 
-    fn read<T: Default>(&self, address: u64) -> T {
+    pub fn read<T: Default>(&self, address: u64) -> T {
         let mut buffer: T = Default::default();
 
         if !self.read_virtual_memory(address, &mut buffer as *mut T as *mut c_void, mem::size_of::<T>() as u32) {
@@ -483,7 +477,7 @@ impl NVDrv {
         buffer
     }
 
-    fn write<T>(&self, address: u64, val: T) -> bool {
+    pub fn write<T>(&self, address: u64, val: T) -> bool {
         if !self.write_virtual_memory(address, &val as *const T as *mut c_void, mem::size_of::<T>() as u32) {
             return false;
         }
@@ -491,7 +485,7 @@ impl NVDrv {
         true
     }
 
-    fn get_process_cr3(&mut self, base_address: u64) -> u64 {
+    pub fn get_process_cr3(&mut self, base_address: u64) -> u64 {
         if base_address == 0 {
             return 0;
         }
@@ -617,12 +611,12 @@ impl NVDrv {
         String::new()
     }
 
-    unsafe fn get_process_base(&self, process_name: &str) -> u64 {
+    pub unsafe fn get_process_base(&self, process_name: &str) -> u64 {
         let process_path = self.get_process_path(process_name) + process_name;
         LoadLibraryW(WideCString::from_str(process_path).unwrap().as_ptr()) as u64
     }
 
-    fn write_memory_to_file(file_path: &str, data: *mut u8, size: usize) -> std::io::Result<()> {
+    pub fn write_memory_to_file(file_path: &str, data: *mut u8, size: usize) -> std::io::Result<()> {
         let slice = unsafe { std::slice::from_raw_parts(data, size) };
         fs::write(file_path, slice)
     }
@@ -636,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_start() {
-        let mut drv = NVDrv::new();
+        let drv = NVDrv::new();
         println!("Drive Location: {:?}", drv.driver_path);
 
         let cr0 = drv.read_cr(NVControlRegisters::CR0);

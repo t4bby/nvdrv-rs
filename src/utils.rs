@@ -1,29 +1,36 @@
 use std::ffi::OsString;
 use std::{env, fs};
 use std::io::Error;
+use rand::{distributions::Alphanumeric, Rng};
 
 use crate::utils::service::{Service, ServiceAccess, ServiceInfo, ServiceManager, ServiceManagerAccess, ServiceStartType, ServiceType};
 
 mod raw_driver;
 mod service;
-mod text;
 
-struct DriverService {
+pub struct DriverService {
     manager: ServiceManager,
-    service_info: ServiceInfo
+    service_info: ServiceInfo,
 }
 
 impl DriverService {
-    fn new() -> Self {
+    pub fn new() -> Self {
+        let service_name: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+
+        let service_file_name = service_name.clone() + ".sys";
         DriverService {
             manager: ServiceManager::new(ServiceManagerAccess::CREATE_SERVICE).unwrap(),
             service_info: ServiceInfo {
-                name: OsString::from("nvoclock"),
-                display_name: OsString::from("nvoclock"),
+                name: OsString::from(&service_name),
+                display_name: OsString::from(&service_name),
                 service_type: ServiceType::KERNEL_DRIVER,
                 start_type: ServiceStartType::OnDemand,
-                executable_path: env::temp_dir().join("nvoclock.sys"),
-            }
+                executable_path: env::temp_dir().join(service_file_name),
+            },
         }
     }
 
@@ -64,18 +71,18 @@ mod tests {
     use std::time::Duration;
     use super::*;
 
-    // #[test]
-    // fn test_start() {
-    //     let drv = DriverService::new();
-    //     drv.create_driver_file().unwrap();
-    //     drv.start_driver().unwrap();
-    //     thread::sleep(Duration::from_secs(5));
-    // }
+    #[test]
+    fn test_start() {
+        let drv = DriverService::new();
+        drv.create_driver_file().unwrap();
+        drv.start_driver().unwrap();
+        thread::sleep(Duration::from_secs(5));
+    }
 
-   /* #[test]
+    #[test]
     fn test_stop() {
         thread::sleep(Duration::from_secs(5));
         let drv = DriverService::new();
         drv.stop_driver().unwrap();
-    }*/
+    }
 }
