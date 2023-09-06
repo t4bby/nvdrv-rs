@@ -1,4 +1,4 @@
-use std::{env, mem, ptr};
+use std::{env, fs, mem, ptr};
 use std::ffi::{c_void, OsString};
 use std::io::Error;
 use std::os::windows::ffi::OsStringExt;
@@ -276,9 +276,11 @@ impl NVDrv {
                 if !self.read_physical_memory(lp_buffer + u_offset, &mut value1 as *mut u64 as *mut c_void, mem::size_of::<u64>() as i32) {
                     continue;
                 }
+
                 if !self.read_physical_memory(lp_buffer + u_offset + 0x70, &mut value2 as *mut u64 as *mut c_void, mem::size_of::<u64>() as i32) {
                     continue;
                 }
+
                 if !self.read_physical_memory(lp_buffer + u_offset + 0xa0, &mut value3 as *mut u64 as *mut c_void, mem::size_of::<u64>() as i32) {
                     continue;
                 }
@@ -502,7 +504,7 @@ impl NVDrv {
             return 0;
         }
 
-        let current_cr3: u64 = self.read_cr(NVControlRegisters::CR3) as u64;
+        let current_cr3 = self.read_cr(NVControlRegisters::CR3) as u64;
         if current_cr3 == 0 {
             return 0;
         }
@@ -620,10 +622,16 @@ impl NVDrv {
         LoadLibraryW(WideCString::from_str(process_path).unwrap().as_ptr()) as u64
     }
 
+    fn write_memory_to_file(file_path: &str, data: *mut u8, size: usize) -> std::io::Result<()> {
+        let slice = unsafe { std::slice::from_raw_parts(data, size) };
+        fs::write(file_path, slice)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, VirtualAlloc, VirtualFree};
     use super::*;
 
     #[test]
@@ -647,17 +655,33 @@ mod tests {
             let process_base = drv.get_process_base("explorer.exe");
             println!("Process Base: {:#x}", process_base);
 
-            /*
-            DWORD DumpSize = 0xFFFF;
-            uintptr_t Allocation = (uintptr_t)VirtualAlloc(0, DumpSize, MEM_COMMIT, PAGE_READWRITE);
-            */
+            let dump_size: usize = 0xFFFF;
+            let allocation = {
+                VirtualAlloc(ptr::null_mut(), dump_size, MEM_COMMIT, PAGE_READWRITE) as *mut u8
+            };
 
+            for i in 0..(dump_size / 8) {
+                let address = allocation.wrapping_add(i * 8);
+                let target_address = i * 8;
+                drv.read_physical_memory(target_address as u64,
+                                         address as *mut c_void,
+                                         8);
+            }
+
+            NVDrv::write_memory_to_file(r"dump.bin",
+                                        allocation,
+                                        dump_size).unwrap();
+
+            VirtualFree(allocation as *mut _, 0, MEM_RELEASE);
+
+            // Disable KVA shadowing
             /*
             let system_cr3 = drv.get_system_cr3();
             println!("System CR3: {:#x}", system_cr3);
 
             let process_cr3 = drv.get_process_cr3(process_base);
-            println!("Process CR3: {:#x}", process_cr3);*/
+            println!("Process CR3: {:#x}", process_cr3);
+            */
         }
 
     }
