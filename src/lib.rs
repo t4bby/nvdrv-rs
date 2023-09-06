@@ -1,9 +1,9 @@
-use std::{env, fs, mem, ptr};
+use std::{fs, mem, ptr};
 use std::ffi::{c_void, OsString};
 use std::io::Error;
 use std::os::windows::ffi::OsStringExt;
 
-use std::path::PathBuf;
+
 use widestring::WideCString;
 use windows_sys::Win32::System::LibraryLoader::{FreeLibrary, GetModuleHandleW, LoadLibraryW};
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
@@ -12,6 +12,8 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot
 
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW};
+use crate::utils::DriverService;
+use crate::utils::service::ServiceState;
 
 
 pub mod utils;
@@ -88,18 +90,22 @@ struct RequestWriteCR {
 }
 
 pub struct NVDrv {
-    driver_path: PathBuf,
     nvhandle: HANDLE,
     encrypt_payload: Option<unsafe extern "C" fn(*mut Request, i32, *mut c_void) -> *mut c_void>,
     target_cr3: u64,
-
+    pub driver_service: DriverService
 }
 
 impl NVDrv {
 
     pub fn new() -> Self {
-        let temp_dir = env::temp_dir().join("nvoclock.sys");
+        let driver_service = DriverService::new();
+        driver_service.create_driver_file().unwrap();
+        driver_service.start_driver().unwrap();
+
+        let temp_dir = &driver_service.service_info.executable_path;
         let nvoclock = unsafe { LoadLibraryW(WideCString::from_os_str(&temp_dir).unwrap().as_ptr()) };
+
         if nvoclock == 0 {
             panic!("{}", Error::last_os_error());
         }
@@ -121,16 +127,16 @@ impl NVDrv {
         };
 
         if nvhandle != INVALID_HANDLE_VALUE {
-            println!("NVR0Internal Handle: {:?}", nvhandle);
+            println!("[+] NVR0Internal Handle: {:?}", nvhandle);
         } else {
-            panic!("Driver is not loaded!");
+            panic!("[!] Driver is not loaded!");
         }
 
         NVDrv {
-            driver_path: temp_dir,
             encrypt_payload,
             nvhandle,
             target_cr3: 0,
+            driver_service,
         }
     }
 
@@ -166,7 +172,7 @@ impl NVDrv {
             );
 
             if status == 0 {
-                println!("Failed VTOP for virtual address: {:p}!", virtual_address as *const u64);
+                println!("[!] Failed VTOP for virtual address: {:p}!", virtual_address as *const u64);
                 return 0;
             }
 
@@ -361,7 +367,7 @@ impl NVDrv {
         }
 
         if !self.read_physical_memory(physical_address, output, size as i32) {
-            println!("Failed ReadVirtualMemory for address: {:p}!", address as *const u64);
+            println!("[!] Failed ReadVirtualMemory for address: {:p}!", address as *const u64);
             return false;
         }
 
@@ -380,7 +386,7 @@ impl NVDrv {
         }
 
         if !self.write_physical_memory(physical_address, data, size as i32) {
-            println!("Failed WriteVirtualMemory for address: {:p}!", address as *const u64);
+            println!("[!] Failed WriteVirtualMemory for address: {:p}!", address as *const u64);
             return false;
         }
 
@@ -622,16 +628,29 @@ impl NVDrv {
     }
 }
 
+impl Drop for NVDrv {
+    fn drop(&mut self) {
+        println!("[+] Stopping Driver");
+        self.driver_service.stop_driver().unwrap();
+
+        loop {
+            if self.driver_service.status_driver().unwrap() == ServiceState::StopPending {
+                println!("[+] Removing Driver");
+                self.driver_service.delete_driver().unwrap();
+                break;
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
-
     use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, VirtualAlloc, VirtualFree};
+
     use super::*;
 
     #[test]
     fn test_start() {
         let drv = NVDrv::new();
-        println!("Drive Location: {:?}", drv.driver_path);
 
         let cr0 = drv.read_cr(NVControlRegisters::CR0);
         println!("CR0: {:#x}", cr0);
@@ -676,7 +695,8 @@ mod tests {
             let process_cr3 = drv.get_process_cr3(process_base);
             println!("Process CR3: {:#x}", process_cr3);
             */
-        }
 
+        }
     }
+
 }

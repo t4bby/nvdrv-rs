@@ -31,6 +31,39 @@ impl Drop for ScHandle {
     }
 }
 
+/// Service state returned as a part of [`ServiceStatus`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum ServiceState {
+    Stopped = Services::SERVICE_STOPPED,
+    StartPending = Services::SERVICE_START_PENDING,
+    StopPending = Services::SERVICE_STOP_PENDING,
+    Running = Services::SERVICE_RUNNING,
+    ContinuePending = Services::SERVICE_CONTINUE_PENDING,
+    PausePending = Services::SERVICE_PAUSE_PENDING,
+    Paused = Services::SERVICE_PAUSED,
+}
+
+
+impl ServiceState {
+    fn from_raw(raw: u32) -> Result<Self, Error> {
+        match raw {
+            x if x == ServiceState::Stopped.to_raw() => Ok(ServiceState::Stopped),
+            x if x == ServiceState::StartPending.to_raw() => Ok(ServiceState::StartPending),
+            x if x == ServiceState::StopPending.to_raw() => Ok(ServiceState::StopPending),
+            x if x == ServiceState::Running.to_raw() => Ok(ServiceState::Running),
+            x if x == ServiceState::ContinuePending.to_raw() => Ok(ServiceState::ContinuePending),
+            x if x == ServiceState::PausePending.to_raw() => Ok(ServiceState::PausePending),
+            x if x == ServiceState::Paused.to_raw() => Ok(ServiceState::Paused),
+            _ => Err(Error::last_os_error())
+        }
+    }
+
+    fn to_raw(self) -> u32 {
+        self as u32
+    }
+}
+
 
 bitflags::bitflags! {
     /// Flags describing access permissions for [`ServiceManager`].
@@ -305,5 +338,25 @@ impl Service {
         }
 
         Ok(())
+    }
+
+    pub fn query_status(&self) -> Result<ServiceState, Error> {
+        let mut raw_status = unsafe { mem::zeroed::<Services::SERVICE_STATUS_PROCESS>() };
+        let mut bytes_needed: u32 = 0;
+        let success = unsafe {
+            Services::QueryServiceStatusEx(
+                self.handler.get_handle(),
+                Services::SC_STATUS_PROCESS_INFO,
+                &mut raw_status as *mut _ as _,
+                std::mem::size_of::<Services::SERVICE_STATUS_PROCESS>() as u32,
+                &mut bytes_needed,
+            )
+        };
+
+        if success == 0 {
+            Err(Error::last_os_error())
+        } else {
+            ServiceState::from_raw(raw_status.dwCurrentState)
+        }
     }
 }

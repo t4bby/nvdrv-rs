@@ -1,27 +1,23 @@
 use std::ffi::OsString;
-use std::{env, fs};
-use std::io::Error;
-use rand::{distributions::Alphanumeric, Rng};
+use std::{fs, env};
 
-use crate::utils::service::{Service, ServiceAccess, ServiceInfo, ServiceManager, ServiceManagerAccess, ServiceStartType, ServiceType};
+use std::io::Error;
+
+use crate::utils::service::{Service, ServiceAccess, ServiceInfo, ServiceManager, ServiceManagerAccess, ServiceStartType, ServiceState, ServiceType};
 
 mod raw_driver;
-mod service;
+pub mod service;
 
 pub struct DriverService {
     manager: ServiceManager,
-    service_info: ServiceInfo,
+    pub service_info: ServiceInfo,
 }
 
 impl DriverService {
     pub fn new() -> Self {
-        let service_name: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(16)
-            .map(char::from)
-            .collect();
-
+        let service_name: String = String::from("t4bby");
         let service_file_name = service_name.clone() + ".sys";
+
         DriverService {
             manager: ServiceManager::new(ServiceManagerAccess::CREATE_SERVICE).unwrap(),
             service_info: ServiceInfo {
@@ -49,40 +45,27 @@ impl DriverService {
     }
 
     pub fn stop_driver(&self) -> Result<(), Error> {
-        let service: Service = self.manager.open_service(
+        let service = self.manager.open_service(
             &self.service_info.name,
-            ServiceAccess::STOP | ServiceAccess::DELETE).unwrap();
+            ServiceAccess::STOP)?;
 
-        let stop_status = service.stop_service();
-        match stop_status {
-            Ok(_) => {
-                service.delete_service().unwrap();
-                fs::remove_file(&self.service_info.executable_path)
-            },
-            Err(i) => Err(i)
-        }
+        service.stop_service()
     }
 
-}
+    pub fn delete_driver(&self) -> Result<(), Error> {
+        let service = self.manager.open_service(
+            &self.service_info.name,
+            ServiceAccess::DELETE)?;
 
-#[cfg(test)]
-mod tests {
-    use std::thread;
-    use std::time::Duration;
-    use super::*;
-
-    #[test]
-    fn test_start() {
-        let drv = DriverService::new();
-        drv.create_driver_file().unwrap();
-        drv.start_driver().unwrap();
-        thread::sleep(Duration::from_secs(5));
+        service.delete_service()
     }
 
-    #[test]
-    fn test_stop() {
-        thread::sleep(Duration::from_secs(5));
-        let drv = DriverService::new();
-        drv.stop_driver().unwrap();
+    pub fn status_driver(&self) -> Result<ServiceState, Error> {
+        let service = self.manager.open_service(
+            &self.service_info.name,
+            ServiceAccess::QUERY_STATUS)?;
+
+        service.query_status()
     }
+
 }
