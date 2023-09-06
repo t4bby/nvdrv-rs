@@ -14,7 +14,7 @@ use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW};
 
 
-mod utils;
+pub mod utils;
 
 static NVDRV_IOCTL_CODE: u32 = 0x9C40A484;
 
