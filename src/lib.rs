@@ -1,6 +1,7 @@
 use std::{fs, mem, ptr};
 use std::ffi::{c_void, OsString};
 use std::io::Error;
+use std::mem::MaybeUninit;
 use std::os::windows::ffi::OsStringExt;
 
 
@@ -8,7 +9,7 @@ use widestring::WideCString;
 use windows_sys::Win32::System::LibraryLoader::{FreeLibrary, GetModuleHandleW, LoadLibraryW};
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_HIDDEN, OPEN_EXISTING};
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W};
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
 
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW};
@@ -590,6 +591,7 @@ impl NVDrv {
         if unsafe { Process32FirstW(h_snapshot, &mut process_entry) } != 0 {
             loop {
                 let exe_file = OsString::from_wide(&process_entry.szExeFile[0..260]);
+
                 if exe_file.to_string_lossy().trim_matches('\0') == process_name {
                     unsafe {
                         CloseHandle(h_snapshot);
@@ -640,11 +642,36 @@ impl NVDrv {
         String::new()
     }
 
+    pub unsafe fn get_process_id(&self, name: &str) -> u32 {
+        let mut process: PROCESSENTRY32W = MaybeUninit::zeroed().assume_init();
+        process.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+        if Process32FirstW(snapshot, &mut process) == 0 {
+            CloseHandle(snapshot);
+            0;
+        }
+
+        while Process32NextW(snapshot, &mut process) != 0 {
+            let process_name = OsString::from_wide(&process.szExeFile);
+            let Some(process_name_str) = process_name.to_str() else {
+                continue;
+            };
+            if process_name_str.contains(name) {
+                CloseHandle(snapshot);
+                return process.th32ProcessID;
+            }
+        }
+
+        CloseHandle(snapshot);
+        0
+    }
+
     pub unsafe fn get_process_base(&self, process_name: &str) -> u64 {
         let process_path = self.get_process_path(process_name) + process_name;
         println!("Process Path: {:?}", process_path);
 
-        LoadLibraryW(WideCString::from_str(process_path).unwrap().as_ptr()) as u64
+        LoadLibraryW(WideCString::from_str(process_name).unwrap().as_ptr()) as u64
     }
 
     pub fn write_memory_to_file(file_path: &str, data: *mut u8, size: usize) -> std::io::Result<()> {
@@ -682,7 +709,7 @@ mod tests {
         println!("CR4: {:#x}", cr4);
 
         unsafe {
-            let process_base = drv.get_process_base("DeadByDaylight-Win64-Shipping.exe");
+            let process_base = drv.get_process_base("explorer.exe");
             println!("Process Base: {:#x}", process_base);
 
             let dump_size: usize = 0xFFFF;
