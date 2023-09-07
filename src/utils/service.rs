@@ -11,8 +11,8 @@ use std::ffi::OsStr;
 use std::io::Error;
 use bitflags::Flags;
 
-/// Reference:
-/// https://github.com/mullvad/windows-service-rs/blob/main/src/sc_handle.rs#L4
+
+#[derive(Default)]
 pub struct ScHandle(Security::SC_HANDLE);
 
 impl ScHandle {
@@ -79,7 +79,7 @@ bitflags::bitflags! {
         const ENUMERATE_SERVICE = Services::SC_MANAGER_ENUMERATE_SERVICE;
     }
 }
-/// Service manager.
+
 pub struct ServiceManager {
     manager_handle: ScHandle,
 }
@@ -311,7 +311,8 @@ impl Service {
         Ok(())
     }
 
-
+    /// Delete Service
+    /// sc delete service
     pub fn delete_service(&self) -> Result<(), Error>{
         let success = unsafe { Services::DeleteService(self.handler.get_handle()) };
         if success == 0 {

@@ -3,7 +3,7 @@ use std::{fs, env};
 
 use std::io::Error;
 
-use crate::utils::service::{Service, ServiceAccess, ServiceInfo, ServiceManager, ServiceManagerAccess, ServiceStartType, ServiceState, ServiceType};
+use crate::utils::service::{ServiceAccess, ServiceInfo, ServiceManager, ServiceManagerAccess, ServiceStartType, ServiceState, ServiceType};
 
 mod raw_driver;
 pub mod service;
@@ -35,11 +35,25 @@ impl DriverService {
                   raw_driver::RAW_DRIVER)
     }
 
-    pub fn start_driver(&self) -> Result<(), Error>{
-
-        let service: Service = self.manager.create_service(
+    pub fn create_driver(&self) -> Result<(), Error>{
+        let service = self.manager.create_service(
             &self.service_info,
-            ServiceAccess::START).unwrap();
+            ServiceAccess::START);
+
+        match service {
+            Ok(i) => unsafe {
+                i.start_service()
+            },
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
+
+    pub fn start_driver(&self) -> Result<(), Error> {
+        let service = self.manager.open_service(
+            &self.service_info.name,
+            ServiceAccess::START)?;
 
         unsafe { service.start_service() }
     }

@@ -100,8 +100,31 @@ impl NVDrv {
 
     pub fn new() -> Self {
         let driver_service = DriverService::new();
-        driver_service.create_driver_file().unwrap();
-        driver_service.start_driver().unwrap();
+
+        // ignore this file creation error, if it exist just restart it :)
+        _ = driver_service.create_driver_file();
+        match driver_service.create_driver() {
+            Ok(_) => {},
+            Err(_) => {
+                println!("[+] Restarting Driver");
+                _ = driver_service.stop_driver();
+
+                loop {
+                    match driver_service.status_driver() {
+                        Ok(i) => {
+                            if i == ServiceState::Stopped {
+                                break
+                            }
+                        },
+                        Err(_) => {
+                            break
+                        }
+                    }
+                }
+
+                driver_service.start_driver().unwrap();
+            }
+        }
 
         let temp_dir = &driver_service.service_info.executable_path;
         let nvoclock = unsafe { LoadLibraryW(WideCString::from_os_str(&temp_dir).unwrap().as_ptr()) };
@@ -619,6 +642,8 @@ impl NVDrv {
 
     pub unsafe fn get_process_base(&self, process_name: &str) -> u64 {
         let process_path = self.get_process_path(process_name) + process_name;
+        println!("Process Path: {:?}", process_path);
+
         LoadLibraryW(WideCString::from_str(process_path).unwrap().as_ptr()) as u64
     }
 
@@ -632,14 +657,6 @@ impl Drop for NVDrv {
     fn drop(&mut self) {
         println!("[+] Stopping Driver");
         self.driver_service.stop_driver().unwrap();
-
-        loop {
-            if self.driver_service.status_driver().unwrap() == ServiceState::StopPending {
-                println!("[+] Removing Driver");
-                self.driver_service.delete_driver().unwrap();
-                break;
-            }
-        }
     }
 }
 #[cfg(test)]
@@ -665,7 +682,7 @@ mod tests {
         println!("CR4: {:#x}", cr4);
 
         unsafe {
-            let process_base = drv.get_process_base("explorer.exe");
+            let process_base = drv.get_process_base("DeadByDaylight-Win64-Shipping.exe");
             println!("Process Base: {:#x}", process_base);
 
             let dump_size: usize = 0xFFFF;
